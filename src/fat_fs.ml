@@ -71,7 +71,7 @@ module Make (B: Mirage_block_lwt.S) = struct
   let (>|*=) x f = x >|= function Ok m -> f m | Error e -> Error e
 
   let alloc bytes =
-    let pages = Io_page.get_buf ~n:((bytes + 4095) / 4096) () in
+    let pages = Io_page.get_buf ~n:((bytes + 511) / 512) () in
     Cstruct.sub pages 0 bytes
 
   (* TODO: this function performs extra data copies *)
@@ -82,7 +82,7 @@ module Make (B: Mirage_block_lwt.S) = struct
       else if Cstruct.len buf <= 512 then [ buf ]
       else Cstruct.sub buf 0 512 :: (split (Cstruct.shift buf 512))
     in
-    let page = alloc 4096 in
+    let page = alloc 512 in
     let rec loop sector_size = function
       | []                     -> Lwt.return (Ok ())
       | (sector, buffer) :: xs ->
@@ -120,7 +120,7 @@ module Make (B: Mirage_block_lwt.S) = struct
     let sector_offset = Int64.(sub offset (mul sector_number (of_int bps))) in
     (* number of 512-byte FAT sectors per physical disk sectors *)
     let sectors_per_block = info.sector_size / bps in
-    let page = alloc 4096 in
+    let page = alloc 512 in
     let block_number = Int64.(div sector_number (of_int sectors_per_block)) in
     B.read device block_number [ page ] >>= function
     | Error e -> Lwt.return @@ Error (`Block_read e)
@@ -173,7 +173,7 @@ module Make (B: Mirage_block_lwt.S) = struct
             "error detecting the format of block device: %s" reason
         | Ok format -> Lwt.return (boot, format)
     in
-    let page = alloc 4096 in
+    let page = alloc 512 in
     B.get_info device >>= fun info ->
     let sector = Cstruct.sub page 0 info.sector_size in
     (B.read device 0L [ sector ] >>= function
