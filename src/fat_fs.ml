@@ -76,13 +76,13 @@ module Make (B: Mirage_block_lwt.S) = struct
 
   (* TODO: this function performs extra data copies *)
   let read_sectors bps device xs =
-    let buf = alloc (List.length xs * 512) in
+    let buf = alloc (List.length xs * bps) in
     let rec split buf =
       if Cstruct.len buf = 0 then []
-      else if Cstruct.len buf <= 512 then [ buf ]
-      else Cstruct.sub buf 0 512 :: (split (Cstruct.shift buf 512))
+      else if Cstruct.len buf <= bps then [ buf ]
+      else Cstruct.sub buf 0 bps :: (split (Cstruct.shift buf bps))
     in
-    let page = alloc 4096 in
+    let page = alloc bps in
     let rec loop sector_size = function
       | []                     -> Lwt.return (Ok ())
       | (sector, buffer) :: xs ->
@@ -92,7 +92,7 @@ module Make (B: Mirage_block_lwt.S) = struct
         B.read device (Int64.of_int sector') [ page ] >>= function
         | Error e -> Lwt.return (Error (`Block_read e))
         | Ok () ->
-          Cstruct.blit page (offset mod sector_size) buffer 0 512;
+          Cstruct.blit page (offset mod sector_size) buffer 0 bps;
           loop sector_size xs
     in
     B.get_info device >>= fun {sector_size; _} ->
@@ -120,7 +120,7 @@ module Make (B: Mirage_block_lwt.S) = struct
     let sector_offset = Int64.(sub offset (mul sector_number (of_int bps))) in
     (* number of 512-byte FAT sectors per physical disk sectors *)
     let sectors_per_block = info.sector_size / bps in
-    let page = alloc 4096 in
+    let page = alloc bps in
     let block_number = Int64.(div sector_number (of_int sectors_per_block)) in
     B.read device block_number [ page ] >>= function
     | Error e -> Lwt.return @@ Error (`Block_read e)
@@ -139,20 +139,20 @@ module Make (B: Mirage_block_lwt.S) = struct
     let fs = { boot = boot; format = format; fat = fat; root = root } in
     Ok fs
 
-  let format device size =
+  let format ?bps:(bps=512) device size =
     (match make size with Ok x -> Lwt.return x | Error x -> Lwt.fail_with x)
     >>= fun fs ->
-    let sector = alloc 512 in
+    let sector = alloc bps in
     Fat_boot_sector.marshal sector fs.boot;
     let fat_sectors = Fat_boot_sector.sectors_of_fat fs.boot in
     let fat_writes = Fat_update.(
-        let updates = split (from_cstruct 0L fs.fat) 512 in
-        map updates fat_sectors 512
+        let updates = split (from_cstruct 0L fs.fat) bps in
+        map updates fat_sectors bps
       )
     in
     let root_sectors = Fat_boot_sector.sectors_of_root_dir fs.boot in
     let root_writes =
-      Fat_update.(map (split (from_cstruct 0L fs.root) 512) root_sectors 512)
+      Fat_update.(map (split (from_cstruct 0L fs.root) bps) root_sectors bps)
     in
     let t = { device; fs } in
     write_update device fs (Fat_update.from_cstruct 0L sector) >>*= fun () ->
