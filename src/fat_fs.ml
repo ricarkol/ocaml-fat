@@ -128,9 +128,9 @@ module Make (B: Mirage_block_lwt.S) = struct
       overwrite_sector ~block_number ~sector_offset ~sector_number
         ~sectors_per_block ~bps page
 
-  let make size =
+  let make ~bps size =
     let open Rresult in
-    let boot = Fat_boot_sector.make size in
+    let boot = Fat_boot_sector.make ~bps size in
     Fat_boot_sector.detect_format boot >>= fun format ->
     let fat = Fat_entry.make boot format in
     let root_sectors = Fat_boot_sector.sectors_of_root_dir boot in
@@ -140,7 +140,7 @@ module Make (B: Mirage_block_lwt.S) = struct
     Ok fs
 
   let format ?bps:(bps=512) device size =
-    (match make size with Ok x -> Lwt.return x | Error x -> Lwt.fail_with x)
+    (match make ~bps size with Ok x -> Lwt.return x | Error x -> Lwt.fail_with x)
     >>= fun fs ->
     let sector = alloc bps in
     Fat_boot_sector.marshal sector fs.boot;

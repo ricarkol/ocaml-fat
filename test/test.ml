@@ -191,7 +191,7 @@ end
 
 let format () =
   Mirage_block_lwt.Mem.connect "" >>= fun t ->
-  MemFS.format t (Int64.mul 16L mib)
+  MemFS.format ?bps:(Some 512) t (Int64.mul 16L mib)
 
 let test_create () =
   let t =

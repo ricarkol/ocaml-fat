@@ -153,11 +153,11 @@ let detect_format x = match format_of_clusters (clusters x) with
   | None -> Error "unknown cluster type"
   | Some x -> Ok x
 
-let make size =
-  let bytes_per_sector = 512 in
+let make ?bps:(bps=512) size =
+  let bytes_per_sector = bps in
   (* XXX: need to choose this intelligently based on the disk size *)
   let sectors_per_cluster = 4 in
-  let total_sectors = Int64.(to_int32 (div (add 511L size) 512L)) in
+  let total_sectors = Int64.(to_int32 (div (add (of_int (bps - 1)) size) (of_int bps))) in
   let total_clusters =
     Int32.(to_int (div (add 3l total_sectors) (of_int sectors_per_cluster)))
   in
@@ -166,7 +166,7 @@ let make size =
   | Some FAT12 | Some FAT32 | None ->
     failwith "unimplemented"
   | Some FAT16 ->
-    let sectors_per_fat = ((total_clusters * 2) + 511) / 512 in
+    let sectors_per_fat = ((total_clusters * 2) + (bps - 1)) / bps in
     let reserved_sectors = 4 in
     let number_of_fats = 1 in
     let number_of_root_dir_entries = 512 in

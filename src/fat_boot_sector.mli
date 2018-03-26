@@ -28,7 +28,7 @@ type t = {
   hidden_preceeding_sectors: int32;
 }
 
-val make: int64 -> t
+val make: ?bps:int -> int64 -> t
 (** [make size] creates a boot sector able to accommodate a disk
     of size [size] bytes *)
 
