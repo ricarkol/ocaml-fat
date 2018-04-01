@@ -1,7 +1,7 @@
 (jbuild_version 1)
 
 (executables
- ((libraries (fat-filesystem lwt lwt.unix cstruct alcotest mirage-fs-lwt mirage-block-unix io-page.unix mirage-block-lwt))
+ ((libraries (fat-filesystem lwt lwt.unix cstruct alcotest mirage-fs-lwt mirage-block-unix io-page.unix mirage-block-lwt mirage-block-ramdisk))
   (names (test))))
 
 (alias
