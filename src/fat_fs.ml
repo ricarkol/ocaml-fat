@@ -134,7 +134,7 @@ module Make (B: Mirage_block_lwt.S) = struct
     Fat_boot_sector.detect_format boot >>= fun format ->
     let fat = Fat_entry.make boot format in
     let root_sectors = Fat_boot_sector.sectors_of_root_dir boot in
-    let root = alloc (List.length root_sectors * 512) in
+    let root = alloc (List.length root_sectors * bps) in
     for i = 0 to Cstruct.len root - 1 do Cstruct.set_uint8 root i 0 done;
     let fs = { boot = boot; format = format; fat = fat; root = root } in
     Ok fs
