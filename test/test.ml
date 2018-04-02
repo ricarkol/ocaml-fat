@@ -189,14 +189,14 @@ module FsError = struct
       Fmt.kpf k ppf "%a" Mirage_fs.pp_write_error error
 end
 
-let format name =
-  Ramdisk.create ~name ~size_sectors:0x100000L ~sector_size:1024 >>= function
+let format () =
+  Ramdisk.create ~name:"" ~size_sectors:0x100000L ~sector_size:1024 >>= function
   | Ok t ->  MemFS.format ?bps:(Some 1024) t (Int64.mul 16L mib)
   | Error _ -> fail "Could not create ramdisk"
 
 let test_create () =
   let t =
-    format "create" >>*= fun fs ->
+    format () >>*= fun fs ->
     let filename = "HELLO.TXT" in
     MemFS.create fs filename >>*= fun () ->
     MemFS.stat fs "/" >>*= function
@@ -242,7 +242,7 @@ let interesting_filenames = [
 
 let test_listdir () =
   let t =
-    format "listdir" >>*= fun fs ->
+    format () >>*= fun fs ->
     let filename = "hello" in
     MemFS.create fs filename >>*= fun () ->
     MemFS.listdir fs "/" >>*= fun all ->
@@ -256,7 +256,7 @@ let test_listdir () =
 
 let test_listdir_subdir () =
   let t =
-    format "listdir_subdir" >>*= fun fs ->
+    format () >>*= fun fs ->
     let dirname = "hello" in
     MemFS.mkdir fs dirname >>*= fun () ->
     MemFS.listdir fs "/" >>*= fun all ->
@@ -281,7 +281,7 @@ let test_listdir_subdir () =
 
 let test_read () =
   let t =
-    format "read" >>*= fun fs ->
+    format () >>*= fun fs ->
     let filename = "hello" in
     let length = 512 in
     MemFS.create fs filename >>*= fun () ->
@@ -306,7 +306,7 @@ let test_read () =
    read(write(data)) = data; and that files are extended properly *)
 let test_write ((filename: string), (_offset, length)) () =
   let t =
-    format "write" >>*= fun fs ->
+    format () >>*= fun fs ->
     let open Lwt in
     ( match List.rev (Fat_path.to_string_list (Fat_path.of_string filename)) with
       | [] -> assert false
@@ -337,7 +337,7 @@ let test_write ((filename: string), (_offset, length)) () =
 
 let test_destroy () =
   let t =
-    format "destroy" >>*= fun fs ->
+    format () >>*= fun fs ->
     MemFS.create fs "/data" >>*= fun () ->
     MemFS.destroy fs "/data" >>*= fun () ->
     MemFS.listdir fs "/" >>*= function
