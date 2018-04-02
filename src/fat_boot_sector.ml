@@ -168,7 +168,7 @@ let make ?bps:(bps=512) size =
   | Some FAT16 ->
     let sectors_per_fat = ((total_clusters * 2) + (bps - 1)) / bps in
     let reserved_sectors = 4 in
-    let number_of_fats = 1 in
+    let number_of_fats = 2 in
     let number_of_root_dir_entries = bps in
     let hidden_preceeding_sectors = 0l in
     { oem_name = default_oem_name;

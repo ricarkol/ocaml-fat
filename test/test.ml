@@ -190,8 +190,8 @@ module FsError = struct
 end
 
 let format name =
-  Ramdisk.create ~name ~size_sectors:0x100000L ~sector_size:4096 >>= function
-  | Ok t ->  MemFS.format ?bps:(Some 4096) t (Int64.mul 16L mib)
+  Ramdisk.create ~name ~size_sectors:0x100000L ~sector_size:1024 >>= function
+  | Ok t ->  MemFS.format ?bps:(Some 1024) t (Int64.mul 16L mib)
   | Error _ -> fail "Could not create ramdisk"
 
 let test_create () =
