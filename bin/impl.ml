@@ -158,10 +158,11 @@ let list common filename =
     Block.connect ~buffered:common.unbuffered filename >>= fun device ->
     Filesystem.connect device >>= fun fs ->
     let rec loop curdir =
-      Filesystem.listdir fs curdir >>*= fun children ->
+      let _curdir = curdir in
+      Filesystem.listdir fs _curdir >>*= fun children ->
       Lwt_list.iter_s
         (fun child ->
-           let path = Filename.concat curdir child in
+           let path = Filename.concat _curdir child in
            Filesystem.stat fs path >>*= fun stats ->
            Printf.printf "%s (%s)(%Ld bytes)\n" path
              (if stats.directory then "DIR" else "FILE")

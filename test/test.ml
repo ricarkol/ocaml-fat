@@ -189,10 +189,17 @@ module FsError = struct
       Fmt.kpf k ppf "%a" Mirage_fs.pp_write_error error
 end
 
-let format () =
-  Ramdisk.create ~name:"" ~size_sectors:0x100000L ~sector_size:1024 >>= function
-  | Ok t ->  MemFS.format ?bps:(Some 1024) t (Int64.mul 16L mib)
+let format2048 () =
+  Ramdisk.create ~name:"" ~size_sectors:0x100000L ~sector_size:2048 >>= function
+  | Ok t ->  MemFS.format ?bps:(Some 2048) t (Int64.mul 256L mib)
   | Error _ -> fail "Could not create ramdisk"
+
+let format512 () =
+  Ramdisk.create ~name:"" ~size_sectors:0x100000L ~sector_size:512 >>= function
+  | Ok t ->  MemFS.format ?bps:(Some 512) t (Int64.mul 16L mib)
+  | Error _ -> fail "Could not create ramdisk"
+
+let format () = format512 ()
 
 let test_create () =
   let t =

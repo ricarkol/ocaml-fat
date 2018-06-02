@@ -50,6 +50,7 @@ type dos = {
   modify: datetime;
   start_cluster: int;
   file_size: int32;
+  is_dot: bool;
 }
 (** A DOS disk entry *)
 

@@ -128,17 +128,23 @@ let ints start length =
 (** Return the sector number of the first cluster *)
 let initial_cluster x =
   let root_start = x.reserved_sectors + x.number_of_fats * x.sectors_per_fat in
-  root_start + (x.number_of_root_dir_entries * 32) / x.bytes_per_sector
+  let cluster_start = root_start + (x.number_of_root_dir_entries * 32) / x.bytes_per_sector in
+  Printf.printf "initial cluster %d\n" cluster_start;
+  cluster_start
 
 (** Return a list of sectors corresponding to cluster n *)
 let sectors_of_cluster x n =
   (* NB clusters 0 and 1 are not on disk *)
+  Printf.printf "sectors of cluster %d\n" n;
   ints (initial_cluster x + x.sectors_per_cluster * (n - 2)) x.sectors_per_cluster
 
 (** Return the number of clusters *)
 let clusters x =
   let cluster_start = initial_cluster x in
-  2 + (Int32.to_int (Int32.div (Int32.sub x.total_sectors (Int32.of_int cluster_start)) (Int32.of_int x.sectors_per_cluster)))
+  let num_clusters = 2 + (Int32.to_int (Int32.div (Int32.sub x.total_sectors (Int32.of_int cluster_start)) (Int32.of_int x.sectors_per_cluster))) in
+  Printf.printf "first cluster %d\n" cluster_start;
+  Printf.printf "calculated clusters %d\n" num_clusters;
+  num_clusters
 
 (* Choose between FAT12, FAT16 and FAT32 using heuristic from:
    http://averstak.tripod.com/fatdox/bootsec.htm *)
@@ -153,11 +159,16 @@ let detect_format x = match format_of_clusters (clusters x) with
   | None -> Error "unknown cluster type"
   | Some x -> Ok x
 
+let align_object sectors clustsize =
+  clustsize * ((sectors + clustsize - 1) / clustsize)
+
 let make ?bps:(bps=512) size =
   let bytes_per_sector = bps in
   (* XXX: need to choose this intelligently based on the disk size *)
   let sectors_per_cluster = 4 in
+  let cluster_size = sectors_per_cluster in
   let total_sectors = Int64.(to_int32 (div (add (of_int (bps - 1)) size) (of_int bps))) in
+  Printf.printf "size %Ld bps %d total_sectors %ld\n" size bps total_sectors;
   let total_clusters =
     Int32.(to_int (div (add 3l total_sectors) (of_int sectors_per_cluster)))
   in
@@ -166,15 +177,53 @@ let make ?bps:(bps=512) size =
   | Some FAT12 | Some FAT32 | None ->
     failwith "unimplemented"
   | Some FAT16 ->
-    let sectors_per_fat = ((total_clusters * 2) + 511) / 512 in
     let reserved_sectors = 4 in
     let number_of_fats = 1 in
     let number_of_root_dir_entries = 512 in
+    let root_dir_sectors = (number_of_root_dir_entries * 32) / bytes_per_sector in
+    Printf.printf "total_clusters %d\n" total_clusters;
+    Printf.printf "reserved_sectors %d cluster_size %d\n" reserved_sectors cluster_size;
+    let _reserved = Int32.(of_int (align_object reserved_sectors cluster_size)) in
+    Printf.printf "_reserved %ld\n" _reserved;
+    let fatdata32 = Int32.(sub total_sectors _reserved) in
+    Printf.printf "total_sectors %ld fatdata32 %ld\n" total_sectors fatdata32;
+    let fatdata1216 = Int32.(sub fatdata32
+                                 (of_int (align_object root_dir_sectors cluster_size))) in
+    Printf.printf "fatdata1216 %ld\n" fatdata1216;
+    let clust16 = Int32.(div (add (mul fatdata1216 (of_int bytes_per_sector))
+                                  (of_int (number_of_fats * 4)))
+                             (add (mul (of_int cluster_size) (of_int bytes_per_sector))
+                                  (of_int (number_of_fats * 2)))) in
+    Printf.printf "clust16 %ld\n" clust16;
+    let fatlength16 = Int32.(div (of_int ((to_int clust16 + 2) * 2))
+                                 (of_int bytes_per_sector)) in
+    Printf.printf "fatlength16 %ld\n" fatlength16;
+    let fatlength16 = align_object (Int32.to_int fatlength16) (cluster_size) in
+    let sectors_per_fat = fatlength16 in
+    let root_start = reserved_sectors + sectors_per_fat * number_of_fats in
+    Printf.printf "fatlength16 %d\n" fatlength16;
+    Printf.printf "bytes per fat %d (=%d sectors)\n" (sectors_per_fat * bps) sectors_per_fat;
+    Printf.printf "root starts at %d\n" root_start;
+    let initial_cluster = root_start + (number_of_root_dir_entries * 32) / bytes_per_sector in
+    Printf.printf "data starts at %d\n" initial_cluster;
+
     let hidden_preceeding_sectors = 0l in
     { oem_name = default_oem_name;
       bytes_per_sector; sectors_per_cluster; total_sectors;
       sectors_per_fat; reserved_sectors; number_of_fats;
       number_of_root_dir_entries; hidden_preceeding_sectors }
+
+(*
+	    fatdata32 = num_sectors
+		- align_object(reserved_sectors, bs.cluster_size);
+	    fatdata1216 = fatdata32
+		- align_object(root_dir_sectors, bs.cluster_size);
+
+	    clust16 = ((long long)fatdata1216 * sector_size + nr_fats * 4) /
+		((int)bs.cluster_size * sector_size + nr_fats * 2);
+	    fatlength16 = cdiv((clust16 + 2) * 2, sector_size);
+	    fatlength16 = align_object(fatlength16, bs.cluster_size);
+*)
 
 let sectors_of_fat x =
   ints x.reserved_sectors x.sectors_per_fat

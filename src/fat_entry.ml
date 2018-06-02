@@ -104,7 +104,7 @@ let make boot_sector format =
   done;
   buf
 
-let initial = 2 (* first valid entry *)
+let initial = 4 (* first valid entry *)
 
 (** [find_free_from boot format fat start] returns an unallocated cluster
     after [start] *)

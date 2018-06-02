@@ -54,6 +54,7 @@ type dos = {
   modify: datetime;
   start_cluster: int;
   file_size: int32;
+  is_dot: bool;
 }
 
 (** Useful for streaming entries to/from the disk *)
@@ -77,18 +78,14 @@ let fake_root_entry = {
   dos = 0, {
       filename = ""; ext = ""; deleted = false; read_only = false;
       hidden = false; system = false; volume = false; subdir = true; archive = false;
-      create = epoch; access = epoch; modify = epoch; start_cluster = 0; file_size = 0l
+      create = epoch; access = epoch; modify = epoch; start_cluster = 0; file_size = 0l;
+      is_dot = false
     };
   lfns = []
 }
 
 let remove_padding x =
-  let rec inner = function
-    | -1 -> x
-    | n when x.[n] = ' ' -> inner (n-1)
-    | n -> String.sub x 0 (n + 1)
-  in
-  inner (String.length x - 1)
+  String.trim x
 
 let file_size_of r = (snd r.dos).file_size
 let deleted r = (snd r.dos).deleted
@@ -97,6 +94,7 @@ let filename_of r =
   then r.utf_filename
   else
     let d = snd(r.dos) in
+    if d.ext = "" then (remove_padding d.filename) else
     (remove_padding d.filename) ^ "." ^ (remove_padding d.ext)
 
 let to_single_entries r =
@@ -119,7 +117,10 @@ let legal_dos_string x =
   with Not_found -> false
 
 let dot = Re.Str.regexp_string "."
-let is_legal_dos_name filename = match Re.Str.split dot filename with
+let is_legal_dos_name filename =
+  let is_dot = filename = ".." || filename = "." in
+  if is_dot then true else
+  match Re.Str.split dot filename with
   | [ one ] -> String.length one <= 8 && (legal_dos_string one)
   | [ one; two ] -> String.length one <= 8
                     && (String.length two <= 3)
@@ -137,6 +138,8 @@ let add_padding p n x =
 let uppercase = Astring.String.Ascii.uppercase
 
 let dos_name_of_filename filename =
+  let is_dot = filename = ".." || filename = "." in
+  if is_dot then filename, "" else
   if is_legal_dos_name filename
   then match Re.Str.split dot filename with
     | [ one ] -> add_padding ' ' 8 one, "   "
@@ -200,7 +203,8 @@ let make ?(read_only=false) ?(system=false) ?(subdir=false) filename =
     access = epoch;
     modify = epoch;
     start_cluster = start_cluster;
-    file_size = file_size
+    file_size = file_size;
+    is_dot = false
   } in
   let checksum = compute_checksum dos in
   let lfns =
@@ -252,7 +256,11 @@ let to_string x =
   let d = snd x.dos in
   let y = trim_utf16 x.utf_filename in
   let z = utf16_to_ascii y in
-  if z = "" then d.filename ^ "." ^ d.ext else z
+  let _ext = String.trim d.ext in
+  let _filename = String.trim d.filename in
+  Printf.printf "to_string: \"%s\" \"%s\" %b\n" _filename _ext d.subdir;
+  if z = "" && _ext = "" then _filename else
+  if z = "" then _filename ^ "." ^ _ext else z
 
 let int_to_hms time =
   let hours = ((time lsr 11) land 0b11111) in
@@ -337,7 +345,7 @@ let unmarshal buf =
       lfn_utf16_name = utf1 ^ utf2 ^ utf3;
     }
   end else begin
-    let filename = Cstruct.to_string (get_name_filename buf) in
+    let filename = remove_padding (Cstruct.to_string (get_name_filename buf)) in
     let ext = Cstruct.to_string (get_name_ext buf) in
     let flags = get_name_flags buf in
     let read_only = flags land 0x1 = 0x1 in
@@ -355,6 +363,8 @@ let unmarshal buf =
     let last_modify_date = get_name_last_modify_date buf in
     let start_cluster = get_name_start_cluster buf in
     let file_size = get_name_file_size buf in
+    let is_dot = filename = ".." || filename = "." in
+    Printf.printf "fat_name \"%s\" %b\n" filename is_dot;
     let x = int_of_char filename.[0] in
     if x = 0
     then End
@@ -375,7 +385,8 @@ let unmarshal buf =
         access = time_of_int last_access_date 0 0;
         modify = time_of_int last_modify_date last_modify_time 0;
         start_cluster = start_cluster;
-        file_size = file_size
+        file_size = file_size;
+        is_dot = is_dot;
       }
   end
 
@@ -516,6 +527,9 @@ let name_match name x =
 (** [find name list] returns [Some d] where [d] is a Dir_entry.t with
     name [name] (or None) *)
 let find name list =
+  Printf.printf "\t\t\tfind.inner_p_ps:fat_name:find:\"%s\" in " name;
+  let _ = List.map (fun _ -> Printf.printf "\"%s\";" "na") list in
+  Printf.printf "\n";
   try Some (List.find (name_match name) list) with Not_found -> None
 
 let remove block filename =

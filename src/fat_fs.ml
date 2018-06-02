@@ -77,6 +77,7 @@ module Make (B: Mirage_block_lwt.S) = struct
   (* TODO: this function performs extra data copies *)
   let read_sectors bps device xs =
     let buf = alloc (List.length xs * bps) in
+    Printf.printf "read_sectors: ";
     let rec split buf =
       if Cstruct.len buf = 0 then []
       else if Cstruct.len buf <= bps then [ buf ]
@@ -89,6 +90,7 @@ module Make (B: Mirage_block_lwt.S) = struct
         let offset = sector * bps in
         let sector' = offset / sector_size in
         Cstruct.memset page 0;
+        Printf.printf "%d " sector;
         B.read device (Int64.of_int sector') [ page ] >>= function
         | Error e -> Lwt.return (Error (`Block_read e))
         | Ok () ->
@@ -97,6 +99,7 @@ module Make (B: Mirage_block_lwt.S) = struct
     in
     B.get_info device >>= fun {sector_size; _} ->
     loop sector_size (List.combine xs (split buf)) >|*= fun () ->
+    Printf.printf "\n";
     Ok buf
 
   let write_update device fs update =
@@ -109,6 +112,7 @@ module Make (B: Mirage_block_lwt.S) = struct
           bps
       in
       Fat_update.apply sector { update with Fat_update.offset = sector_offset };
+      Printf.printf "\t\twrite %Ld\n" block_number;
       B.write device block_number [ page ] >>= function
       | Error e -> Lwt.return @@ Error (`Block_write e)
       | Ok () -> Lwt.return @@ Ok ()
@@ -122,6 +126,7 @@ module Make (B: Mirage_block_lwt.S) = struct
     let sectors_per_block = info.sector_size / bps in
     let page = alloc bps in
     let block_number = Int64.(div sector_number (of_int sectors_per_block)) in
+    Printf.printf "\twrite offset=%Ld sector=%Ld block=%Ld sector_offset=%Ld\n" offset sector_number block_number sector_offset;
     B.read device block_number [ page ] >>= function
     | Error e -> Lwt.return @@ Error (`Block_read e)
     | Ok () ->
@@ -131,8 +136,10 @@ module Make (B: Mirage_block_lwt.S) = struct
   let make ~bps size =
     let open Rresult in
     let boot = Fat_boot_sector.make ~bps size in
+    Fat_boot_sector.debug_print boot;
     Fat_boot_sector.detect_format boot >>= fun format ->
     let fat = Fat_entry.make boot format in
+    Fat_boot_sector.debug_print boot;
     let root_sectors = Fat_boot_sector.sectors_of_root_dir boot in
     let root = alloc (List.length root_sectors * bps) in
     for i = 0 to Cstruct.len root - 1 do Cstruct.set_uint8 root i 0 done;
@@ -155,9 +162,11 @@ module Make (B: Mirage_block_lwt.S) = struct
       Fat_update.(map (split (from_cstruct 0L fs.root) bps) root_sectors bps)
     in
     let t = { device; fs } in
+    Printf.printf "format\n";
     write_update device fs (Fat_update.from_cstruct 0L sector) >>*= fun () ->
     iter_s (write_update device fs) fat_writes >>*= fun () ->
     iter_s (write_update device fs) root_writes >|*= fun () ->
+    Printf.printf "done with format\n";
     Ok t
 
   let connect device =
@@ -181,6 +190,7 @@ module Make (B: Mirage_block_lwt.S) = struct
       | Ok () ->
         let open Fat_boot_sector in
         get_fs sector >>= fun (boot, format) ->
+        Fat_boot_sector.debug_print boot;
         read_sectors boot.bytes_per_sector device (sectors_of_fat boot)
         >>*= fun fat ->
         read_sectors boot.bytes_per_sector device (sectors_of_root_dir boot)
@@ -202,6 +212,7 @@ module Make (B: Mirage_block_lwt.S) = struct
     Fat_entry.Chain.(to_sectors fs.boot (follow fs.format fs.fat cluster))
 
   let read_whole_file device fs name =
+    Printf.printf "\t\tread_whole_file(%s)\n" (Fat_name.to_string name);
     let f = snd name.Fat_name.dos in
     read_sectors fs.boot.Fat_boot_sector.bytes_per_sector device
       (sectors_of_file fs f)
@@ -209,29 +220,50 @@ module Make (B: Mirage_block_lwt.S) = struct
   (** [find device fs path] returns a [find_result] corresponding to
       the object stored at [path] *)
   let find device fs path =
+    Printf.printf "\tfind %s\n" (Fat_path.to_string path);
     let readdir = function
       | Dir ds -> Lwt.return (Ok ds)
       | File d ->
         read_whole_file device fs d >|*= fun buf ->
         Ok (Fat_name.list buf)
     in
-    let rec inner sofar current = function
+    let rec inner sofar current dest =
+      match dest with
       | [] ->
         (match current with
-         | Dir ds -> Lwt.return (Ok (Dir ds))
-         | File {Fat_name.dos = _, {Fat_name.subdir = true; _}; _} ->
+         | Dir ds -> Printf.printf "aquiiii no es dot?\n";Lwt.return (Ok (Dir ds))
+         | File ({Fat_name.dos = _, {Fat_name.is_dot = true; _}; _} as d) ->
+           Printf.printf "a dot!!\n";
+           Lwt.return (Ok (File d))
+         | File ({Fat_name.dos = _, {Fat_name.subdir = true; _}; _} as d) ->
+           Printf.printf "\t\t\tfind.inner_[_]_File_subdir_true: %s\n" (Fat_name.to_string d);
            readdir current >|*= fun names ->
+           Printf.printf "\t\tfind.inner.readdir:";
+           let _ = List.map (fun n -> Printf.printf "%s;" (Fat_name.to_string n)) names in
+           Printf.printf "\n";
            Ok (Dir names)
          | File ({Fat_name.dos = _, {Fat_name.subdir = false; _}; _} as d) ->
+           Printf.printf "\t\t\tfind.inner_[_]_File_subdir_false: %s\n" (Fat_name.to_string d);
            Lwt.return (Ok (File d)))
       | p :: ps ->
+        Printf.printf "\t\t\tfind.inner_p_ps:%s\n" p;
         readdir current >>*= fun entries ->
         match Fat_name.find p entries, ps with
+        (*| Some {Fat_name.dos = _, {Fat_name.subdir = true; Fat_name.is_dot = true; _}; _}, _ :: _ ->
+          Lwt.return (Error `Not_a_directory)*)
         | Some {Fat_name.dos = _, {Fat_name.subdir = false; _}; _}, _ :: _ ->
+          Printf.printf "\t\t\tfind.inner_p_ps_1:%s\n" p;
           Lwt.return (Error `Not_a_directory)
-        | Some d, _ -> inner (p::sofar) (File d) ps
-        | None, _   -> Lwt.return (Error `No_directory_entry)
+        | Some d, _ ->
+          Printf.printf "\t\t\tfind.inner_p_ps_2:%s\n" p;
+          inner (p::sofar) (File d) ps
+        | None, _   ->
+          Printf.printf "\t\t\tfind.inner_p_ps_3:%s\n" p;
+          Lwt.return (Error `No_directory_entry)
     in
+    Printf.printf "\t\tfind parts:";
+    let _ = List.map (fun p -> Printf.printf "\"%s\";" p) (Fat_path.to_string_list path) in
+    Printf.printf "\n";
     inner [] (Dir (Fat_name.list fs.root)) (Fat_path.to_string_list path)
 
   module Location = struct
@@ -452,10 +484,11 @@ module Make (B: Mirage_block_lwt.S) = struct
     | Error _ as e -> e
 
   let listdir x path =
+    Printf.printf "\nlistdir %s\n" path;
     let path = Fat_path.of_string path in
     find x.device x.fs path >|= function
     | Ok (File _)  -> Error `Not_a_directory
-    | Ok (Dir ds)  -> Ok (List.map Fat_name.to_string ds)
+    | Ok (Dir ds)  -> Ok (List.map (fun f -> Printf.printf "\tlistdir.find_results:%s;\n" (Fat_name.to_string f); Fat_name.to_string f) ds)
     | Error _ as e -> e
 
   let read_file device fs
